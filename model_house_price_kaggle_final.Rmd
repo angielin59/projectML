@@ -1,0 +1,161 @@
+---
+title: "Housing Prices Forest Modeling"
+author: "Angie Lin, Chris Castano, Kat Kennovin"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+#Load libraries
+library(dplyr)
+library(ggplot2)
+library(stringr)
+library(ISLR)
+library(randomForest)
+library(tree)
+library(gbm)
+```
+
+```{r}
+#Read in the training dataset
+train.updated = read.csv("train_updated.csv", stringsAsFactors = TRUE)
+```
+
+```{r}
+#Making training and test index with the training dataset. 80-20 divide.
+set.seed(0)
+train = sample(1:nrow(train.updated), 8*nrow(train.updated)/10) #Training indices.
+
+#Response variable: saleprice
+saleprice = train.updated$SalePrice
+```
+
+```{r}
+#Dataset
+final.train = train.updated[ , !names(train.updated) %in% c('YrSold', 'YearRemodAdd', 
+                                         'TotalBsmtSF', 'WoodDeckSF', 'OpenPorchSF',
+                                         'EnclosedPorch', 'ScreenPorch', 'GarageArea', 
+                                         'SalePrice', 'areaBin', 'X')]
+#Dataset separated by index.
+training = final.train[train, ]
+test = final.train[-train, ] #Test dataset.
+
+#Response variable separated by index.
+saleprice.train = saleprice[train, ]
+saleprice.test = saleprice[-train, ] #Test response.
+```
+
+```{r}
+#First random forest
+set.seed(0)
+treefinal = randomForest(log(saleprice.train) ~ ., data = training, importance = TRUE)
+
+#Filter the importance of the variables
+#Remove the variables that are less important than the random variable. 
+df = data.frame(importance(treefinal))
+df$variable = rownames(data.frame(importance(treefinal)))
+tab <- df %>%
+  arrange(desc(X.IncMSE))
+a <- tab %>%
+  filter(variable == "randInit") %>%
+  select(X.IncMSE)
+b <- tab %>%
+  filter(X.IncMSE > a[1, ])
+newTab <- training[c(b$variable)]
+
+#Running a new random forest with some variables removed.
+treefinal2 = randomForest(log(saleprice.train) ~ ., data = newTab, importance = TRUE)
+```
+
+```{r}
+#Get the predictions on the test portion of the training dataset 
+tree.pred = predict(treefinal2, test)
+sum((tree.pred - log(saleprice.test))^2)/292
+#This was the best random forest model obtained with the lowest test error. So will will use this model on the whole training set and then predict on the test set. 
+```
+
+```{r}
+#TESTING MODEL:
+train.final = train.updated[ , !names(train.updated) %in% c('YrSold', 'YearRemodAdd', 
+                                         'TotalBsmtSF', 'WoodDeckSF', 'OpenPorchSF',
+                                         'EnclosedPorch', 'ScreenPorch', 'GarageArea', 
+                                         'SalePrice', 'areaBin', 'X')]
+#Response variable: saleprice
+saleprice = train.updated$SalePrice
+```
+
+```{r}
+#First random forest
+set.seed(0)
+treefinal = randomForest(log(saleprice) ~ ., data = train.final, importance = TRUE)
+
+#Filter the importance of the variables
+#Remove the variables that are less important than the random variable. 
+df = data.frame(importance(treefinal))
+df$variable = rownames(data.frame(importance(treefinal)))
+tab <- df %>%
+  arrange(desc(X.IncMSE))
+a <- tab %>%
+  filter(variable == "randInit") %>%
+  select(X.IncMSE)
+b <- tab %>%
+  filter(X.IncMSE > a[1, ])
+newTab <- train.final[c(b$variable)]
+
+#Running a new random forest with some variables removed.
+treefinal2 = randomForest(log(saleprice) ~ ., data = newTab, importance = TRUE)
+```
+
+```{r}
+#Read in the test data.
+finaltesting = read.csv('test_updated.csv', stringsAsFactors = TRUE)
+
+#Filter the dataset. 
+finaltest = finaltesting[ , !names(finaltesting) %in% c('YrSold', 'YearRemodAdd', 
+                                         'TotalBsmtSF', 'WoodDeckSF', 'OpenPorchSF',
+                                         'EnclosedPorch', 'ScreenPorch', 'GarageArea', 
+                                         'SalePrice', 'areaBin', 'X')]
+finaltest = finaltest[c(b$variable)]
+
+#Equalize the types of the columns.  
+finaltest = rbind(newTab[1,], finaltest)
+finaltest = finaltest[-1,]
+
+#Predict test saleprice values. 
+tree.test = predict(treefinal2, finaltest)
+
+#write results to CSV
+write.csv(exp(tree.test), file = "test_results.csv")
+```
+
+```{r}
+# boosting
+library(gbm)
+
+# best model
+set.seed(0)
+boost.house = gbm(log(saleprice) ~ ., data = newTab,
+                   distribution = "gaussian",
+                   n.trees = 200,
+                   interaction.depth = 4)
+
+predmat = predict(boost.house, newdata = finaltest, n.trees = 200)
+
+# berr = with(finaltest, apply((predmat - log(saleprice))^2, 2, mean))
+# 
+# which.min(berr)
+# min(berr)
+
+write.csv(exp(predmat), file = "boost_test_results.csv")
+
+```
+
+
+
+
+
+
+
